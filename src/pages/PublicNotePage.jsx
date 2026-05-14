@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { notesAPI } from '../api';
 import { motion } from 'framer-motion';
-import { Brain, Calendar, CheckCircle2, ChevronRight, Sparkles } from 'lucide-react';
+import { Brain, Calendar, CheckCircle2, ChevronRight, Sparkles, X } from 'lucide-react';
 
 const PublicNotePage = () => {
   const [note, setNote] = useState(null);
@@ -80,8 +80,8 @@ const PublicNotePage = () => {
           </div>
         </header>
 
-        <article className="prose prose-slate dark:prose-invert max-w-none text-xl leading-relaxed whitespace-pre-wrap">
-          {note.content}
+        <article className="prose prose-slate dark:prose-invert max-w-none text-xl leading-relaxed tiptap-content">
+          <div dangerouslySetInnerHTML={{ __html: note.content }} />
         </article>
 
         {(note.aiSummary || (note.aiActionItems && note.aiActionItems.length > 0)) && (

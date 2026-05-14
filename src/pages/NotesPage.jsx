@@ -59,7 +59,8 @@ const NotesPage = ({ archived }) => {
         showToast(`AI found ${res.data.relevantIds.length} relevant notes`, "success");
       }
     } catch (err) {
-      showToast("AI Search failed", "error");
+      const msg = err.response?.data?.message || "AI Search failed";
+      showToast(msg, "error");
     } finally {
       setAiSearching(false);
     }

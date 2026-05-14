@@ -371,12 +371,19 @@ app.use((req, res) => {
 
 // Start Server only if not in production/vercel
 if (require.main === module) {
-    setupDatabase().then(() => {
+    setupDatabase().then(async () => {
+        // Quick Groq Diagnostic
+        if (!process.env.GROQ_API_KEY) {
+            console.warn('⚠️ WARNING: GROQ_API_KEY is missing from .env');
+        } else {
+            console.log('✅ Groq AI Configuration detected');
+        }
+
         app.listen(PORT, () => {
-            console.log(`Server running on http://localhost:${PORT}`);
+            console.log(`🚀 Server running on http://localhost:${PORT}`);
         });
     }).catch(err => {
-        console.error('Failed to start server due to database connection error');
+        console.error('❌ Failed to start server due to database connection error');
     });
 }
 
