@@ -320,22 +320,32 @@ app.post('/api/ai/search-intent', authenticateToken, async (req, res) => {
     const { query } = req.body;
     try {
         const notes = await Note.find({ userId: req.user.id }, 'id title content tags aiSummary');
+        
+        if (notes.length === 0) return res.json({ relevantIds: [] });
+
         const noteContext = notes.map(n => ({
             id: n.id,
             title: n.title,
-            summary: n.aiSummary || n.content.substring(0, 100)
+            summary: n.aiSummary || n.content.replace(/<[^>]*>/g, ' ').substring(0, 150)
         }));
 
         const result = await callGroq([
-            { role: 'system', content: `You are an AI search assistant. Given a user query and a list of notes, return a JSON array of the IDs of the notes that are most relevant to the query. Rank them by relevance. If none are relevant, return an empty array. Return ONLY the JSON array.` },
-            { role: 'user', content: `Query: "${query}"\n\nNotes: ${JSON.stringify(noteContext)}` }
-        ]);
+            { role: 'system', content: `You are an AI search engine. Analyze the query and return a simple JSON array of IDs for relevant notes. If no notes match, return []. ONLY return the JSON array.` },
+            { role: 'user', content: `Query: "${query}"\n\nNotes Data: ${JSON.stringify(noteContext)}` }
+        ], 1000);
 
-        const match = result.match(/\[.*\]/s);
-        const relevantIds = match ? JSON.parse(match[0]) : [];
-        res.json({ relevantIds });
+        // Robust JSON extraction
+        const jsonMatch = result.match(/\[.*\]/s);
+        if (!jsonMatch) {
+            console.error("AI Search returned invalid format:", result);
+            return res.json({ relevantIds: [] });
+        }
+
+        const relevantIds = JSON.parse(jsonMatch[0]);
+        res.json({ relevantIds: Array.isArray(relevantIds) ? relevantIds : [] });
     } catch (err) {
-        res.status(500).json({ message: 'AI Search failed' });
+        console.error("AI Search Error:", err);
+        res.status(500).json({ message: 'AI Search is currently unavailable. Please try again.' });
     }
 });
 
