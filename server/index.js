@@ -335,11 +335,15 @@ app.use((req, res) => {
     res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
-// Start Server
-setupDatabase().then(() => {
-    app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`);
+// Start Server only if not in production/vercel
+if (require.main === module) {
+    setupDatabase().then(() => {
+        app.listen(PORT, () => {
+            console.log(`Server running on http://localhost:${PORT}`);
+        });
+    }).catch(err => {
+        console.error('Failed to start server due to database connection error');
     });
-}).catch(err => {
-    console.error('Failed to start server due to database connection error');
-});
+}
+
+module.exports = app;
