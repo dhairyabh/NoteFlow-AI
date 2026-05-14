@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { notesAPI } from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Calendar, Share2, FileText, ChevronRight, Hash, Clock } from 'lucide-react';
+import { Plus, Search, Calendar, Share2, FileText, ChevronRight, Hash, Clock, Sparkles, X } from 'lucide-react';
+import { useToast } from '../App';
+import { notesAPI, aiAPI } from '../api';
 import { useNavigate } from 'react-router-dom';
 
 // Strip HTML tags for card previews
@@ -14,7 +15,10 @@ const NotesPage = ({ archived }) => {
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [aiSearching, setAiSearching] = useState(false);
+  const [aiResultIds, setAiResultIds] = useState(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   useEffect(() => {
     fetchNotes();
@@ -32,11 +36,39 @@ const NotesPage = ({ archived }) => {
     }
   };
 
-  const filteredNotes = notes.filter(n => 
-    n.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    n.content?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    n.tags?.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredNotes = notes.filter(n => {
+    if (aiResultIds) return aiResultIds.includes(n.id);
+    
+    return n.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+           n.content?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+           n.tags?.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
+  });
+
+  const handleAiSearch = async () => {
+    if (!searchQuery.trim()) {
+      showToast("Please enter a search query first", "info");
+      return;
+    }
+    setAiSearching(true);
+    try {
+      const res = await aiAPI.searchIntent(searchQuery);
+      setAiResultIds(res.data.relevantIds);
+      if (res.data.relevantIds.length === 0) {
+        showToast("AI couldn't find highly relevant matches", "info");
+      } else {
+        showToast(`AI found ${res.data.relevantIds.length} relevant notes`, "success");
+      }
+    } catch (err) {
+      showToast("AI Search failed", "error");
+    } finally {
+      setAiSearching(false);
+    }
+  };
+
+  const clearAiSearch = () => {
+    setAiResultIds(null);
+    setSearchQuery('');
+  };
 
   const createNote = async () => {
     try {
@@ -101,8 +133,38 @@ const NotesPage = ({ archived }) => {
             placeholder="Search through your digital brain..."
             className="w-full pl-14 pr-6 py-5 rounded-[2rem] bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all shadow-sm text-lg font-medium"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (aiResultIds) setAiResultIds(null);
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && handleAiSearch()}
           />
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            {aiResultIds ? (
+              <button 
+                onClick={clearAiSearch}
+                className="p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-red-500 transition-colors"
+                title="Clear AI Results"
+              >
+                <X size={20} />
+              </button>
+            ) : (
+              <button 
+                onClick={handleAiSearch}
+                disabled={aiSearching}
+                className={`p-3 rounded-2xl flex items-center gap-2 transition-all ${
+                  aiSearching 
+                  ? 'bg-primary/20 text-primary animate-pulse' 
+                  : 'bg-primary/10 text-primary hover:bg-primary hover:text-white'
+                }`}
+              >
+                <Sparkles size={20} className={aiSearching ? 'animate-spin' : ''} />
+                <span className="hidden sm:inline font-bold text-sm">
+                  {aiSearching ? 'Searching...' : 'AI Search'}
+                </span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

@@ -315,6 +315,30 @@ app.post('/api/ai/suggest-title', authenticateToken, async (req, res) => {
     }
 });
 
+// --- AI Semantic Search ---
+app.post('/api/ai/search-intent', authenticateToken, async (req, res) => {
+    const { query } = req.body;
+    try {
+        const notes = await Note.find({ userId: req.user.id }, 'id title content tags aiSummary');
+        const noteContext = notes.map(n => ({
+            id: n.id,
+            title: n.title,
+            summary: n.aiSummary || n.content.substring(0, 100)
+        }));
+
+        const result = await callGroq([
+            { role: 'system', content: `You are an AI search assistant. Given a user query and a list of notes, return a JSON array of the IDs of the notes that are most relevant to the query. Rank them by relevance. If none are relevant, return an empty array. Return ONLY the JSON array.` },
+            { role: 'user', content: `Query: "${query}"\n\nNotes: ${JSON.stringify(noteContext)}` }
+        ]);
+
+        const match = result.match(/\[.*\]/s);
+        const relevantIds = match ? JSON.parse(match[0]) : [];
+        res.json({ relevantIds });
+    } catch (err) {
+        res.status(500).json({ message: 'AI Search failed' });
+    }
+});
+
 // AI usage tracking endpoint
 app.post('/api/stats/ai-usage', authenticateToken, async (req, res) => {
     const today = new Date().toISOString().split('T')[0];

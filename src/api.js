@@ -46,6 +46,7 @@ export const aiAPI = {
   summarize: (content) => api.post('/ai/summary', { content }),
   extractActions: (content) => api.post('/ai/actions', { content }),
   suggestTitle: (content) => api.post('/ai/suggest-title', { content }),
+  searchIntent: (query) => api.post('/ai/search-intent', { query }),
 };
 
 export const statsAPI = {
