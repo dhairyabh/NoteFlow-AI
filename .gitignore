@@ -10,3 +10,6 @@ dist-ssr
 scratch
 vanilla-backup
 package-lock.json
+*.sqlite
+*.db-journal
+.vercel
