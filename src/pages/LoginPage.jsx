@@ -45,12 +45,12 @@ const LoginPage = ({ isSignup, onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-6 overflow-hidden">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
-        className="w-full max-w-[1000px] grid grid-cols-1 lg:grid-cols-2 glass-card rounded-[3rem] overflow-hidden shadow-2xl"
+        className="w-full max-w-[1000px] grid grid-cols-1 lg:grid-cols-2 glass-card rounded-[2rem] sm:rounded-[3rem] shadow-2xl my-auto"
       >
         {/* Left Side: Illustration & Branding */}
         <div className="hidden lg:flex flex-col justify-between p-12 premium-gradient text-white relative overflow-hidden">
@@ -83,17 +83,17 @@ const LoginPage = ({ isSignup, onLogin }) => {
         </div>
 
         {/* Right Side: Form */}
-        <div className="p-10 md:p-16 flex flex-col justify-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-3xl">
+        <div className="p-6 md:p-10 flex flex-col justify-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-3xl">
           <div className="mb-10 lg:hidden text-center">
             <img src="/noteflow_logo.png" alt="Logo" className="w-16 h-16 mx-auto mb-4" />
             <h2 className="text-3xl font-black tracking-tight">NoteFlow AI</h2>
           </div>
 
-          <div className="mb-8">
-            <h2 className="text-3xl font-black tracking-tight mb-2">
+          <div className="mb-5">
+            <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-1">
               {isSignup ? 'Create Account' : 'Welcome Back'}
             </h2>
-            <p className="text-slate-500 dark:text-slate-400 font-medium">
+            <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 font-medium">
               {isSignup ? 'Join 5,000+ power users today' : 'Continue your productive flow'}
             </p>
           </div>
@@ -112,7 +112,7 @@ const LoginPage = ({ isSignup, onLogin }) => {
             )}
           </AnimatePresence>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {isSignup && (
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase text-slate-400 tracking-widest ml-1">Full Name</label>
@@ -163,7 +163,7 @@ const LoginPage = ({ isSignup, onLogin }) => {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full btn-primary py-5 rounded-[1.5rem] group mt-4 overflow-hidden relative"
+              className="w-full btn-primary py-3 rounded-[1.5rem] group mt-2 overflow-hidden relative"
             >
               <motion.div
                 className="absolute inset-0 bg-white/20 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-500"
@@ -181,7 +181,7 @@ const LoginPage = ({ isSignup, onLogin }) => {
             </button>
           </form>
 
-          <div className="relative my-8">
+          <div className="relative my-4 md:my-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
             </div>
@@ -202,8 +202,8 @@ const LoginPage = ({ isSignup, onLogin }) => {
             />
           </div>
 
-          <div className="mt-10 text-center">
-            <p className="text-slate-500 dark:text-slate-400 font-medium">
+          <div className="mt-4 md:mt-6 text-center">
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
               {isSignup ? 'Already have an account?' : 'New to NoteFlow?'} 
               <Link to={isSignup ? "/login" : "/signup"} className="text-primary font-black ml-2 hover:underline">
                 {isSignup ? 'Sign In' : 'Create Account'}

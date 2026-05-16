@@ -55,7 +55,7 @@
   }
 
   .input-field {
-    @apply w-full px-5 py-4 rounded-2xl bg-white/50 dark:bg-slate-900/50 border border-slate-200/50 dark:border-slate-800/50
+    @apply w-full px-5 py-3 rounded-2xl bg-white/50 dark:bg-slate-900/50 border border-slate-200/50 dark:border-slate-800/50
            focus:ring-4 focus:ring-primary/10 focus:border-primary outline-none transition-all duration-300;
   }
 }
