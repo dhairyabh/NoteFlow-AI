@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useToast } from '../App';
 import { notesAPI, aiAPI, statsAPI } from '../api';
@@ -35,6 +35,14 @@ const EditorPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const { showToast, showConfirm } = useToast();
+  const titleRef = useRef(null);
+
+  useEffect(() => {
+    if (titleRef.current) {
+      titleRef.current.style.height = 'inherit';
+      titleRef.current.style.height = `${titleRef.current.scrollHeight}px`;
+    }
+  }, [note?.title]);
 
   useEffect(() => {
     fetchNote();
@@ -187,14 +195,13 @@ const EditorPage = () => {
         >
           {/* Title */}
           <textarea 
+            ref={titleRef}
             placeholder="Untitled Masterpiece"
             rows={1}
             className="text-5xl font-black bg-transparent border-none outline-none w-full placeholder:text-slate-200 dark:placeholder:text-slate-800 tracking-tighter leading-tight resize-none overflow-hidden mb-4"
             value={note.title}
             onChange={(e) => {
               handleUpdate({ title: e.target.value });
-              e.target.style.height = 'inherit';
-              e.target.style.height = `${e.target.scrollHeight}px`;
             }}
           />
 
