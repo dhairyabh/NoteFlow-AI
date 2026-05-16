@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useToast } from '../App';
-import { notesAPI, aiAPI } from '../api';
+import { notesAPI, aiAPI, statsAPI } from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, 
@@ -96,6 +96,9 @@ const EditorPage = () => {
       }
       setNote(prev => ({ ...prev, ...result }));
       await notesAPI.update(id, result);
+      
+      // Track specific AI usage
+      await statsAPI.trackUsage(`ai_${type}`);
     } catch (err) {
       console.error("AI Error", err);
       showToast("AI generation failed. Please try again.", "error");

@@ -4,23 +4,21 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const { OAuth2Client } = require('google-auth-library');
 const { setupDatabase } = require('./database');
 const path = require('path');
-
-// Mongoose Models
-const User = require('./models/User');
-const Note = require('./models/Note');
-const Activity = require('./models/Activity');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'noteflow_secret_key_123';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+
+const client = new OAuth2Client(GOOGLE_CLIENT_ID);
+let db;
 
 app.use(cors());
 app.use(express.json());
-
-// Serve static files from the root directory
 app.use(express.static(path.join(__dirname, '..')));
 
 // --- Middleware ---
@@ -43,18 +41,19 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
         const id = uuidv4();
-        const user = await User.create({
-            id,
-            name,
-            email: email.toLowerCase(),
-            password: hashedPassword
-        });
+        
+        await db.run(
+            'INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)',
+            [id, name, email.toLowerCase(), hashedPassword]
+        );
+        
         const token = jwt.sign({ id, email }, JWT_SECRET, { expiresIn: '7d' });
-        res.status(201).json({ token, user: { id, name, email: user.email } });
+        res.status(201).json({ token, user: { id, name, email: email.toLowerCase() } });
     } catch (err) {
-        if (err.code === 11000) {
+        if (err.message.includes('UNIQUE constraint failed')) {
             return res.status(400).json({ message: 'Email already exists' });
         }
+        console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -62,20 +61,50 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     try {
-        const user = await User.findOne({ email: email.toLowerCase() });
+        const user = await db.get('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
         if (!user || !(await bcrypt.compare(password, user.password))) {
             return res.status(400).json({ message: 'Invalid email or password' });
         }
         const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
         res.json({ token, user: { id: user.id, name: user.name, email: user.email, groqKey: user.groqKey } });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+app.post('/api/auth/google', async (req, res) => {
+    const { token } = req.body;
+    try {
+        const ticket = await client.verifyIdToken({
+            idToken: token,
+            audience: GOOGLE_CLIENT_ID,
+        });
+        const { name, email } = ticket.getPayload();
+
+        let user = await db.get('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
+
+        if (!user) {
+            const id = uuidv4();
+            const hashedPassword = await bcrypt.hash(uuidv4(), 10);
+            await db.run(
+                'INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)',
+                [id, name, email.toLowerCase(), hashedPassword]
+            );
+            user = { id, name, email: email.toLowerCase() };
+        }
+
+        const jwtToken = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token: jwtToken, user: { id: user.id, name: user.name, email: user.email, groqKey: user.groqKey } });
+    } catch (err) {
+        console.error('Google Auth Error:', err);
+        res.status(400).json({ message: 'Google authentication failed' });
     }
 });
 
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
     try {
-        const user = await User.findOne({ id: req.user.id }, 'id name email groqKey theme');
+        const user = await db.get('SELECT id, name, email, groqKey, theme FROM users WHERE id = ?', [req.user.id]);
         res.json(user);
     } catch (err) {
         res.status(500).json({ message: 'Server error' });
@@ -85,10 +114,9 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 app.put('/api/auth/settings', authenticateToken, async (req, res) => {
     const { groqKey, theme } = req.body;
     try {
-        await User.findOneAndUpdate(
-            { id: req.user.id },
-            { $set: { groqKey, theme } },
-            { omitUndefined: true }
+        await db.run(
+            'UPDATE users SET groqKey = COALESCE(?, groqKey), theme = COALESCE(?, theme) WHERE id = ?',
+            [groqKey, theme, req.user.id]
         );
         res.json({ message: 'Settings updated' });
     } catch (err) {
@@ -99,12 +127,22 @@ app.put('/api/auth/settings', authenticateToken, async (req, res) => {
 // --- Notes Routes ---
 app.get('/api/notes', authenticateToken, async (req, res) => {
     const { archived } = req.query;
-    const isArchived = archived === 'true';
+    const isArchived = archived === 'true' ? 1 : 0;
     try {
-        const notes = await Note.find({ userId: req.user.id, isArchived })
-            .sort({ updatedAt: -1 });
+        const notes = await db.all(
+            'SELECT * FROM notes WHERE userId = ? AND isArchived = ? ORDER BY updatedAt DESC',
+            [req.user.id, isArchived]
+        );
+        // Parse JSON fields
+        notes.forEach(n => {
+            n.tags = JSON.parse(n.tags || '[]');
+            n.aiActionItems = JSON.parse(n.aiActionItems || '[]');
+            n.isArchived = !!n.isArchived;
+            n.isPublic = !!n.isPublic;
+        });
         res.json(notes);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -113,24 +151,24 @@ app.post('/api/notes', authenticateToken, async (req, res) => {
     const id = uuidv4();
     const { title = 'Untitled Note', content = '', tags = [] } = req.body;
     try {
-        const note = await Note.create({
-            id,
-            userId: req.user.id,
-            title,
-            content,
-            tags
-        });
+        await db.run(
+            'INSERT INTO notes (id, userId, title, content, tags) VALUES (?, ?, ?, ?, ?)',
+            [id, req.user.id, title, content, JSON.stringify(tags)]
+        );
         
         // Track activity
         const today = new Date().toISOString().split('T')[0];
-        await Activity.findOneAndUpdate(
-            { userId: req.user.id, type: 'note_created', date: today },
-            { $inc: { count: 1 } },
-            { upsert: true, new: true }
+        await db.run(
+            'INSERT INTO activity (userId, type, date, count) VALUES (?, ?, ?, 1) ON CONFLICT(userId, type, date) DO UPDATE SET count = count + 1',
+            [req.user.id, 'note_created', today]
         );
 
+        const note = await db.get('SELECT * FROM notes WHERE id = ?', [id]);
+        note.tags = JSON.parse(note.tags);
+        note.aiActionItems = JSON.parse(note.aiActionItems);
         res.status(201).json(note);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -138,30 +176,39 @@ app.post('/api/notes', authenticateToken, async (req, res) => {
 app.put('/api/notes/:id', authenticateToken, async (req, res) => {
     const { title, content, tags, isArchived, isPublic, aiSummary, aiActionItems } = req.body;
     try {
-        await Note.findOneAndUpdate(
-            { id: req.params.id, userId: req.user.id },
-            { 
-                $set: { 
-                    title, 
-                    content, 
-                    tags, 
-                    isArchived, 
-                    isPublic, 
-                    aiSummary, 
-                    aiActionItems 
-                } 
-            },
-            { omitUndefined: true }
+        await db.run(
+            `UPDATE notes SET 
+                title = COALESCE(?, title),
+                content = COALESCE(?, content),
+                tags = COALESCE(?, tags),
+                isArchived = COALESCE(?, isArchived),
+                isPublic = COALESCE(?, isPublic),
+                aiSummary = COALESCE(?, aiSummary),
+                aiActionItems = COALESCE(?, aiActionItems),
+                updatedAt = CURRENT_TIMESTAMP
+            WHERE id = ? AND userId = ?`,
+            [
+                title, 
+                content, 
+                tags ? JSON.stringify(tags) : null, 
+                isArchived !== undefined ? (isArchived ? 1 : 0) : null,
+                isPublic !== undefined ? (isPublic ? 1 : 0) : null,
+                aiSummary,
+                aiActionItems ? JSON.stringify(aiActionItems) : null,
+                req.params.id,
+                req.user.id
+            ]
         );
         res.json({ message: 'Note updated' });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
 
 app.delete('/api/notes/:id', authenticateToken, async (req, res) => {
     try {
-        await Note.deleteOne({ id: req.params.id, userId: req.user.id });
+        await db.run('DELETE FROM notes WHERE id = ? AND userId = ?', [req.params.id, req.user.id]);
         res.json({ message: 'Note deleted' });
     } catch (err) {
         res.status(500).json({ message: 'Server error' });
@@ -172,9 +219,9 @@ app.delete('/api/notes/:id', authenticateToken, async (req, res) => {
 app.post('/api/notes/:id/share', authenticateToken, async (req, res) => {
     const shareToken = uuidv4() + uuidv4();
     try {
-        await Note.findOneAndUpdate(
-            { id: req.params.id, userId: req.user.id },
-            { $set: { isPublic: true, shareToken } }
+        await db.run(
+            'UPDATE notes SET isPublic = 1, shareToken = ? WHERE id = ? AND userId = ?',
+            [shareToken, req.params.id, req.user.id]
         );
         res.json({ shareToken });
     } catch (err) {
@@ -184,9 +231,9 @@ app.post('/api/notes/:id/share', authenticateToken, async (req, res) => {
 
 app.post('/api/notes/:id/revoke', authenticateToken, async (req, res) => {
     try {
-        await Note.findOneAndUpdate(
-            { id: req.params.id, userId: req.user.id },
-            { $set: { isPublic: false, shareToken: null } }
+        await db.run(
+            'UPDATE notes SET isPublic = 0, shareToken = NULL WHERE id = ? AND userId = ?',
+            [req.params.id, req.user.id]
         );
         res.json({ message: 'Share revoked' });
     } catch (err) {
@@ -196,8 +243,10 @@ app.post('/api/notes/:id/revoke', authenticateToken, async (req, res) => {
 
 app.get('/api/public/notes/:token', async (req, res) => {
     try {
-        const note = await Note.findOne({ shareToken: req.params.token, isPublic: true });
+        const note = await db.get('SELECT * FROM notes WHERE shareToken = ? AND isPublic = 1', [req.params.token]);
         if (!note) return res.status(404).json({ message: 'Note not found' });
+        note.tags = JSON.parse(note.tags || '[]');
+        note.aiActionItems = JSON.parse(note.aiActionItems || '[]');
         res.json(note);
     } catch (err) {
         res.status(500).json({ message: 'Server error' });
@@ -208,20 +257,19 @@ app.get('/api/public/notes/:token', async (req, res) => {
 app.get('/api/stats', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     try {
-        const totalNotes = await Note.countDocuments({ userId, isArchived: false });
-        const archivedNotes = await Note.countDocuments({ userId, isArchived: true });
-        const sharedNotes = await Note.countDocuments({ userId, isPublic: true });
+        const totalNotes = (await db.get('SELECT COUNT(*) as count FROM notes WHERE userId = ? AND isArchived = 0', [userId])).count;
+        const archivedNotes = (await db.get('SELECT COUNT(*) as count FROM notes WHERE userId = ? AND isArchived = 1', [userId])).count;
+        const sharedNotes = (await db.get('SELECT COUNT(*) as count FROM notes WHERE userId = ? AND isPublic = 1', [userId])).count;
         
         // Top Tags
-        const allNotes = await Note.find({ userId }, 'tags');
+        const allNotes = await db.all('SELECT tags FROM notes WHERE userId = ?', [userId]);
         const tagCount = {};
         allNotes.forEach(n => {
-            if (n.tags) {
-                n.tags.forEach(tag => {
-                    const t = tag.trim();
-                    if (t) tagCount[t] = (tagCount[t] || 0) + 1;
-                });
-            }
+            const tags = JSON.parse(n.tags || '[]');
+            tags.forEach(tag => {
+                const t = tag.trim();
+                if (t) tagCount[t] = (tagCount[t] || 0) + 1;
+            });
         });
         const topTags = Object.entries(tagCount)
             .sort((a, b) => b[1] - a[1])
@@ -234,20 +282,34 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
             const d = new Date(); d.setDate(d.getDate() - i);
             const dateStr = d.toISOString().split('T')[0];
             const dayName = d.toLocaleDateString('en', { weekday: 'short' });
-            const act = await Activity.findOne({ userId, date: dateStr });
-            weekly.push({ day: dayName, count: act ? act.count : 0, date: dateStr });
+            const act = await db.get('SELECT SUM(count) as count FROM activity WHERE userId = ? AND date = ?', [userId, dateStr]);
+            weekly.push({ day: dayName, count: act ? (act.count || 0) : 0, date: dateStr });
         }
 
-        // AI Usage (simplified for this demo)
-        const aiUsage = { summary: 12, actions: 8, title: 15 }; 
+        // AI Usage Breakdown (Dynamic)
+        const aiStats = await db.all(
+            "SELECT type, SUM(count) as total FROM activity WHERE userId = ? AND type LIKE 'ai_%' GROUP BY type",
+            [userId]
+        );
+        
+        const aiUsage = { summary: 0, actions: 0, title: 0 };
+        let totalAICalls = 0;
+        
+        aiStats.forEach(stat => {
+            if (stat.type === 'ai_summary') aiUsage.summary = stat.total;
+            if (stat.type === 'ai_actions') aiUsage.actions = stat.total;
+            if (stat.type === 'ai_title') aiUsage.title = stat.total;
+            totalAICalls += stat.total;
+        });
 
-        res.json({ totalNotes, archivedNotes, sharedNotes, weekly, aiUsage, totalAICalls: 35, topTags });
+        res.json({ totalNotes, archivedNotes, sharedNotes, weekly, aiUsage, totalAICalls, topTags });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ message: 'Server error' });
     }
 });
 
-// --- AI Features (Backend Powered) ---
+// --- AI Features ---
 const callGroq = async (messages, maxTokens = 500) => {
     if (!GROQ_API_KEY) throw new Error('Groq API Key not configured on server');
 
@@ -315,12 +377,10 @@ app.post('/api/ai/suggest-title', authenticateToken, async (req, res) => {
     }
 });
 
-// --- AI Semantic Search ---
 app.post('/api/ai/search-intent', authenticateToken, async (req, res) => {
     const { query } = req.body;
     try {
-        const notes = await Note.find({ userId: req.user.id }, 'id title content tags aiSummary');
-        
+        const notes = await db.all('SELECT id, title, content, tags, aiSummary FROM notes WHERE userId = ?', [req.user.id]);
         if (notes.length === 0) return res.json({ relevantIds: [] });
 
         const noteContext = notes.map(n => ({
@@ -334,29 +394,23 @@ app.post('/api/ai/search-intent', authenticateToken, async (req, res) => {
             { role: 'user', content: `Query: "${query}"\n\nNotes Data: ${JSON.stringify(noteContext)}` }
         ], 1000);
 
-        // Robust JSON extraction
         const jsonMatch = result.match(/\[.*\]/s);
-        if (!jsonMatch) {
-            console.error("AI Search returned invalid format:", result);
-            return res.json({ relevantIds: [] });
-        }
-
-        const relevantIds = JSON.parse(jsonMatch[0]);
+        const relevantIds = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
         res.json({ relevantIds: Array.isArray(relevantIds) ? relevantIds : [] });
     } catch (err) {
         console.error("AI Search Error:", err);
-        res.status(500).json({ message: 'AI Search is currently unavailable. Please try again.' });
+        res.status(500).json({ message: 'AI Search is currently unavailable.' });
     }
 });
 
-// AI usage tracking endpoint
 app.post('/api/stats/ai-usage', authenticateToken, async (req, res) => {
+    const { feature } = req.body; // e.g., 'ai_summary', 'ai_actions', 'ai_title'
+    const type = feature || 'ai_call';
     const today = new Date().toISOString().split('T')[0];
     try {
-        await Activity.findOneAndUpdate(
-            { userId: req.user.id, type: 'ai_call', date: today },
-            { $inc: { count: 1 } },
-            { upsert: true, new: true }
+        await db.run(
+            'INSERT INTO activity (userId, type, date, count) VALUES (?, ?, ?, 1) ON CONFLICT(userId, type, date) DO UPDATE SET count = count + 1',
+            [req.user.id, type, today]
         );
         res.json({ message: 'AI usage tracked' });
     } catch (err) {
@@ -364,15 +418,13 @@ app.post('/api/stats/ai-usage', authenticateToken, async (req, res) => {
     }
 });
 
-// Catch-all route to serve index.html for any non-API routes (SPA support)
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
-// Start Server only if not in production/vercel
 if (require.main === module) {
-    setupDatabase().then(async () => {
-        // Quick Groq Diagnostic
+    setupDatabase().then(async (database) => {
+        db = database;
         if (!process.env.GROQ_API_KEY) {
             console.warn('⚠️ WARNING: GROQ_API_KEY is missing from .env');
         } else {
@@ -383,7 +435,7 @@ if (require.main === module) {
             console.log(`🚀 Server running on http://localhost:${PORT}`);
         });
     }).catch(err => {
-        console.error('❌ Failed to start server due to database connection error');
+        console.error('❌ Failed to start server:', err);
     });
 }
 

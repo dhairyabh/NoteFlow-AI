@@ -28,6 +28,7 @@ api.interceptors.response.use(
 export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
   register: (userData) => api.post('/auth/register', userData),
+  googleLogin: (token) => api.post('/auth/google', { token }),
   me: () => api.get('/auth/me'),
   updateSettings: (settings) => api.put('/auth/settings', settings),
 };
@@ -51,7 +52,7 @@ export const aiAPI = {
 
 export const statsAPI = {
   getStats: () => api.get('/stats'),
-  trackUsage: () => api.post('/stats/ai-usage'),
+  trackUsage: (feature) => api.post('/stats/ai-usage', { feature }),
 };
 
 export default api;

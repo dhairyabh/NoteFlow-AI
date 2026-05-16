@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { authAPI } from '../api';
+import { GoogleLogin } from '@react-oauth/google';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, User, ArrowRight, Brain, Sparkles, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -24,6 +25,20 @@ const LoginPage = ({ isSignup, onLogin }) => {
       onLogin();
     } catch (err) {
       setError(err.response?.data?.message || 'Authentication failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await authAPI.googleLogin(credentialResponse.credential);
+      localStorage.setItem('nf_token', res.data.token);
+      onLogin();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Google Authentication failed.');
     } finally {
       setLoading(false);
     }
@@ -165,6 +180,27 @@ const LoginPage = ({ isSignup, onLogin }) => {
               </span>
             </button>
           </form>
+
+          <div className="relative my-8">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-white dark:bg-slate-900 px-4 text-slate-400 font-black tracking-widest">Or continue with</span>
+            </div>
+          </div>
+
+          <div className="flex justify-center">
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError('Google Login Failed')}
+              useOneTap
+              theme="filled_blue"
+              shape="pill"
+              text={isSignup ? "signup_with" : "signin_with"}
+              width="100%"
+            />
+          </div>
 
           <div className="mt-10 text-center">
             <p className="text-slate-500 dark:text-slate-400 font-medium">
